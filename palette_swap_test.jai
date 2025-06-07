@@ -18,16 +18,16 @@ main :: () {
     SetTextureFilter(light_texture, .TEXTURE_FILTER_POINT);
 
     shader := LoadShaderFromMemory(PALETTE_SWAP_VERTEX_SHADER, PALETTE_SWAP_FRAGMENT_SHADER);
-    
-    projection_loc := GetShaderLocation(shader, "projection");
 
+    projection := Matrix4_Identity;
+    projection._22 = -1;
+    
+    projection_loc      := GetShaderLocation(shader, "projection");
     main_texture_loc    := GetShaderLocation(shader, "main_texture");
     palette_texture_loc := GetShaderLocation(shader, "palette_texture");
     light_texture_loc   := GetShaderLocation(shader, "light_texture");
-
-    SetShaderValueTexture(shader, main_texture_loc,    main_texture);
-    SetShaderValueTexture(shader, palette_texture_loc, palette_texture);
-    SetShaderValueTexture(shader, light_texture_loc,   light_texture);
+    
+    rlDisableBackfaceCulling();
 
     while !WindowShouldClose() {
         BeginDrawing();
@@ -35,11 +35,12 @@ main :: () {
 
         ClearBackground(BLACK);
 
-
         BeginShaderMode(shader);
         defer EndShaderMode();
-
-        SetShaderValueMatrix(shader, projection_loc, Matrix4_Identity);
+        
+        // For some reason you need to set the uniform while you are in the
+        // shader mode in raylib.
+        SetShaderValueMatrix (shader, projection_loc,      projection);
         SetShaderValueTexture(shader, main_texture_loc,    main_texture);
         SetShaderValueTexture(shader, palette_texture_loc, palette_texture);
         SetShaderValueTexture(shader, light_texture_loc,   light_texture);
@@ -111,8 +112,12 @@ void main() {
         return;
     }
 
-    float light_intensity = texture(light_texture, uv).r;
+    float light_intensity = texture(light_texture, uv).a;
 
-    color = texture(palette_texture, vec2(float(index), 1.0 - light_intensity));
+    // The 0.999 is to prevent us from wrapping back around to the dark value if
+    // "light_intensity" has a value of 1.
+    vec2 palette_uv = vec2(float(index) / float(texture_size.x), light_intensity * 0.999);
+
+    color = texture(palette_texture, palette_uv);
 }
 END
