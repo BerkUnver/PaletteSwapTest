@@ -1,4 +1,5 @@
 #import "raylib";
+#import "Math";
 
 WINDOW_X :: 1920;
 WINDOW_Y :: 1080;
@@ -7,44 +8,58 @@ main :: () {
     InitWindow(WINDOW_X, WINDOW_Y, "Palette Swap Test");
     SetTargetFPS(60);
 
-    main_texture := LoadTexture("palette_swap_test.png");
+    main_texture := LoadTexture("main.png");
     SetTextureFilter(main_texture, .TEXTURE_FILTER_POINT);
+
+    palette_texture := LoadTexture("palette.png");
+    SetTextureFilter(palette_texture, .TEXTURE_FILTER_POINT);
+
+    light_texture := LoadTexture("light.png");
+    SetTextureFilter(light_texture, .TEXTURE_FILTER_POINT);
 
     shader := LoadShaderFromMemory(PALETTE_SWAP_VERTEX_SHADER, PALETTE_SWAP_FRAGMENT_SHADER);
     
+    projection_loc := GetShaderLocation(shader, "projection");
+
     main_texture_loc    := GetShaderLocation(shader, "main_texture");
     palette_texture_loc := GetShaderLocation(shader, "palette_texture");
     light_texture_loc   := GetShaderLocation(shader, "light_texture");
+
+    SetShaderValueTexture(shader, main_texture_loc,    main_texture);
+    SetShaderValueTexture(shader, palette_texture_loc, palette_texture);
+    SetShaderValueTexture(shader, light_texture_loc,   light_texture);
 
     while !WindowShouldClose() {
         BeginDrawing();
         defer EndDrawing();
 
-        ClearBackground(RAYWHITE);
+        ClearBackground(BLACK);
+
 
         BeginShaderMode(shader);
         defer EndShaderMode();
 
-        SetShaderValue(shader, main_texture_loc, *main_texture, .SHADER_UNIFORM_SAMPLER2D);
+        SetShaderValueMatrix(shader, projection_loc, Matrix4_Identity);
+        SetShaderValueTexture(shader, main_texture_loc,    main_texture);
+        SetShaderValueTexture(shader, palette_texture_loc, palette_texture);
+        SetShaderValueTexture(shader, light_texture_loc,   light_texture);
         
-        src := Rectangle.{0, 0, xx main_texture.width, xx main_texture.height};
-        
-        rlBegin();
+        rlBegin(RL_TRIANGLES);
         defer rlEnd();
         
-        rlVertex3f(-1, -1, 0);
         rlTexCoord2f(0, 0);
-        rlVertex3f(-1, 1, 0);
+        rlVertex3f(-1, -1, 0);
         rlTexCoord2f(0, 1);
-        rlVertex3f(1, 1, 0);
+        rlVertex3f(-1, 1, 0);
         rlTexCoord2f(1, 1);
+        rlVertex3f(1, 1, 0);
 
-        rlVertex3f(-1, -1, 0);
         rlTexCoord2f(0, 0);
-        rlVertex3f(1, 1, 0);
+        rlVertex3f(-1, -1, 0);
         rlTexCoord2f(1, 1);
-        rlVertex3f(1, -1, 0);
+        rlVertex3f(1, 1, 0);
         rlTexCoord2f(1, 0);
+        rlVertex3f(1, -1, 0);
     }
 }
 
@@ -55,13 +70,13 @@ PALETTE_SWAP_VERTEX_SHADER :: #string END
 in vec3 vertexPosition;
 in vec2 vertexTexCoord;
 
-uniform mat4 mvp;
+uniform mat4 projection;
 
 out vec2 uv;
 
 void main() {
     uv = vertexTexCoord;
-    gl_Position = mvp * vec4(vertexPosition, 1.0);
+    gl_Position = projection * vec4(vertexPosition, 1.0);
 }
 END
 
@@ -78,7 +93,7 @@ uniform sampler2D palette_texture;
 uniform sampler2D light_texture;
 
 void main() {
-    vec4 original_color = main_texture(main_texture, uv);
+    vec4 original_color = texture(main_texture, uv);
 
     ivec2 texture_size = textureSize(palette_texture, 0);
 
@@ -96,8 +111,8 @@ void main() {
         return;
     }
 
-    float light_intensity = main_texture(light_texture, uv).r;
+    float light_intensity = texture(light_texture, uv).r;
 
-    color = main_texture(light_texture, vec2(float(index), 1.0 - light_intensity));
+    color = texture(palette_texture, vec2(float(index), 1.0 - light_intensity));
 }
 END
