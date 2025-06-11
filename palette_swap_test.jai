@@ -1,27 +1,67 @@
 #import "raylib";
+#import "Basic";
 #import "Math";
+#import "File_Watcher";
 
 WINDOW_X :: 1920;
 WINDOW_Y :: 1080;
 
+main_texture:    Texture;
+palette_texture: Texture;
+light_texture:   Texture;
+
 main :: () {
+    SetConfigFlags(.FLAG_WINDOW_RESIZABLE);
     InitWindow(WINDOW_X, WINDOW_Y, "Palette Swap Test");
     SetTargetFPS(60);
 
-    main_texture := LoadTexture("main.png");
+    watcher: File_Watcher();
+    watcher_callback := (watcher: *File_Watcher(), change: *File_Change, user_data: *void) {
+        if !(change.events & .REMOVED) {
+            if change.full_path == {
+                case "./main.png";
+                    UnloadTexture(main_texture);
+                    main_texture = LoadTexture("main.png");
+                    SetTextureFilter(main_texture, .TEXTURE_FILTER_POINT);
+
+                case "./palette.png";
+                    UnloadTexture(palette_texture);
+                    palette_texture = LoadTexture("palette.png");
+                    SetTextureFilter(palette_texture, .TEXTURE_FILTER_BILINEAR);
+                    SetTextureWrap(palette_texture, .TEXTURE_WRAP_CLAMP);
+
+                case "./light.png";
+                    UnloadTexture(light_texture);
+                    light_texture = LoadTexture("light.png");
+                    SetTextureFilter(light_texture, .TEXTURE_FILTER_POINT);
+
+                case;
+                    return;
+            }
+
+            print("Hotloaded '%'\n", change.full_path);
+        }
+    }
+
+    assert(init(*watcher, watcher_callback, watch_recursively=false));
+    assert(add_directories(*watcher, "."));
+
+    // @Copypaste from the watcher callback
+    main_texture = LoadTexture("main.png");
     SetTextureFilter(main_texture, .TEXTURE_FILTER_POINT);
 
-    palette_texture := LoadTexture("palette.png");
-    SetTextureFilter(palette_texture, .TEXTURE_FILTER_POINT);
+    palette_texture = LoadTexture("palette.png");
+    SetTextureFilter(palette_texture, .TEXTURE_FILTER_BILINEAR);
+    SetTextureWrap(palette_texture, .TEXTURE_WRAP_CLAMP);
 
-    light_texture := LoadTexture("light.png");
+    light_texture = LoadTexture("light.png");
     SetTextureFilter(light_texture, .TEXTURE_FILTER_POINT);
+
+
+
 
     shader := LoadShaderFromMemory(PALETTE_SWAP_VERTEX_SHADER, PALETTE_SWAP_FRAGMENT_SHADER);
 
-    projection := Matrix4_Identity;
-    projection._22 = -1;
-    
     projection_loc      := GetShaderLocation(shader, "projection");
     main_texture_loc    := GetShaderLocation(shader, "main_texture");
     palette_texture_loc := GetShaderLocation(shader, "palette_texture");
@@ -30,23 +70,34 @@ main :: () {
     rlDisableBackfaceCulling();
 
     while !WindowShouldClose() {
+        process_changes(*watcher);
+
         BeginDrawing();
-        defer EndDrawing();
 
         ClearBackground(BLACK);
 
         BeginShaderMode(shader);
-        defer EndShaderMode();
         
-        // For some reason you need to set the uniform while you are in the
-        // shader mode in raylib.
+
+        projection := Matrix4_Identity;
+        
+        aspect := cast(float)GetRenderHeight() / cast(float)GetRenderWidth();
+        main_aspect := cast(float)main_texture.height / cast(float)main_texture.width;
+
+        if main_aspect > aspect { // Window is too wide, make the projection less wide
+            projection._11 = aspect / main_aspect;
+        } else { // Window is too tall, make the projection less tall.
+            projection._22 = main_aspect / aspect;
+        }
+
+        projection._22 *= -1;
+        
         SetShaderValueMatrix (shader, projection_loc,      projection);
         SetShaderValueTexture(shader, main_texture_loc,    main_texture);
         SetShaderValueTexture(shader, palette_texture_loc, palette_texture);
         SetShaderValueTexture(shader, light_texture_loc,   light_texture);
         
         rlBegin(RL_TRIANGLES);
-        defer rlEnd();
         
         rlTexCoord2f(0, 0);
         rlVertex3f(-1, -1, 0);
@@ -61,6 +112,14 @@ main :: () {
         rlVertex3f(1, 1, 0);
         rlTexCoord2f(1, 0);
         rlVertex3f(1, -1, 0);
+
+        rlEnd();
+
+        EndShaderMode();
+
+        EndDrawing();
+
+        reset_temporary_storage();
     }
 }
 
@@ -100,8 +159,7 @@ void main() {
 
     int index = -1;
     for (int i = 0; i < texture_size.x; i++) {
-        vec4 palette_color = texelFetch(palette_texture, ivec2(i, 0), 0);
-        if (palette_color == original_color) {
+        if (texelFetch(palette_texture, ivec2(i, 0), 0) == original_color) {
             index = i;
             break;
         }
@@ -113,11 +171,20 @@ void main() {
     }
 
     float light_intensity = texture(light_texture, uv).a;
+    
+    // The + 0.5 is so we end up in the middle of the texel in the palette so we aren't
+    // affected by bilinear filtering.
+    vec2 palette_uv = vec2((float(index) + 0.5) / float(texture_size.x), light_intensity);
 
-    // The 0.999 is to prevent us from wrapping back around to the dark value if
-    // "light_intensity" has a value of 1.
-    vec2 palette_uv = vec2(float(index) / float(texture_size.x), light_intensity * 0.999);
 
-    color = texture(palette_texture, palette_uv);
+    vec4 palette_color = texture(palette_texture, palette_uv);
+    if (palette_color.x < 0.001 && palette_color.y < 0.001 && palette_color.z < 0.001 && palette_color.a > 0.999) {
+        // If the palette color is really close to black, that means we haven't filled it in yet.
+        // The program should let us know by making the pixels a hideous blue;
+        color = vec4(0, 1, 1, 1);
+        return;
+    }
+
+    color = palette_color;
 }
 END
