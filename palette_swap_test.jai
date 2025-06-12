@@ -80,14 +80,21 @@ main :: () {
         
 
         projection := Matrix4_Identity;
+       
+        render_width := GetRenderWidth();
+        render_height := GetRenderHeight();
+    
+        main_width := render_width / 480 * 480;
+        main_height := render_height / 270 * 270;
         
-        aspect := cast(float)GetRenderHeight() / cast(float)GetRenderWidth();
-        main_aspect := cast(float)main_texture.height / cast(float)main_texture.width;
-
-        if main_aspect > aspect { // Window is too wide, make the projection less wide
-            projection._11 = aspect / main_aspect;
-        } else { // Window is too tall, make the projection less tall.
-            projection._22 = main_aspect / aspect;
+        if cast(float)main_texture.height / cast(float)main_texture.width > cast(float)main_height / cast(float)main_width {
+            // Window is too wide. Make the projection less wide.
+            projection._22 = cast(float)main_height / cast(float)render_height;
+            projection._11 = cast(float)(main_height * 16 / 9) / cast(float)render_width;
+        } else {
+            // Window is too narrow. Make the projection less tall.
+            projection._11 = cast(float)main_width / cast(float)render_width;
+            projection._22 = cast(float)(main_width * 9 / 16) / cast(float)render_height;
         }
 
         projection._22 *= -1;
