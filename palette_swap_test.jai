@@ -131,6 +131,124 @@ main :: () {
 }
 
 
+Bmp :: struct {
+    width: s32;
+    height: s32;
+    id: s32;
+    palette_count: s32;
+    palette: [256] Vector4;
+}
+
+
+load_bmp :: (path: string) -> Bmp {
+    str, success := read_entire_file(path);
+    assert(success);
+
+    header_1 := get(*str, u8);
+    header_2 := get(*str, u8);
+    assert(header_1 == #char "B" && header_2 == #char "M");
+
+    size := get(*str, u32);
+    // Not sure what this actually corresponds to.
+    // I am ignoring this for now.
+
+    reserved_1 := get(*str, u16);
+    reserved_2 := get(*str, u16);
+
+    offset := get(*str, u32);
+
+    BITMAPINFOHEADER :: struct {
+        biSize:          u32;
+        biWidth:         s32;
+        biHeight:        s32;
+        biPlanes:        u16;
+        biBitCount:      u16;
+        biCompression:   u32;
+        biSizeImage:     u32;
+        biXPelsPerMeter: s32;
+        biYPelsPerMeter: s32;
+        biClrUsed:       u32;
+        biClrImportant:  u32;
+    }
+
+    assert(str.count >= size_of(u32));
+    header_biSize := (cast(*u32)str.data).*;
+    assert(header_biSize == size_of(BITMAPINFOHEADER)); // Only accepting these ones for now
+    
+    header := get(*str, BITMAPINFOHEADER);
+
+    assert(header.biHeight >= 0); // Bottom in lower-left corner. Not accepting other ones for now.
+
+    assert(header.biPlanes == 1); // The only valid value
+    
+    assert(header.biBitCount == 8); // Only accepting this for now.
+
+    assert(header.biCompression == 0); // No compression
+    
+    assert(header.biClrUsed <= 256);
+    
+    assert(header.biClrImportant <= header.biClrUsed);
+
+    RGBQUAD :: struct {
+        a, b, g, r: u8;
+    }
+
+    palette_size := header.biClrUsed * size_of(RGBQUAD);
+    palette: *RGBQUAD = xx advance(*str, palette_size);
+    
+    assert(header.biWidth % 4 == 0);
+    // Apparently they insert padding bits to round up to 4 bytes per row.
+    // I don't want to deal with that right now so I am just doing this.
+
+    image_data := advance(*str, image.biWidth * header.biHeight);
+
+    assert(str.count == 0); // I don't know if this is correct. Is there padding at the end?
+
+    id := rlLoadTexture(image_data, image.biWidth, image.biHeight, .PIXELFORMAT_UNCOMPRESSED_GRAYSCALE, 0);
+
+    bmp: Bmp;
+    bmp.width = header.biWidth;
+    bmp.height = heaer.biHeight;
+    bmp.id = id;
+    bmp.palette_count = palette_count;
+    for 0..palette_count-1 {
+        using q := palette[it];
+        bmp.palette[it_index] = .{
+            cast(float)r/255,
+            cast(float)g/255,
+            cast(float)b/255,
+            1
+        };
+    }
+
+    return bmp;
+}
+
+set_bmp_uniform :: (shader: Shader, loc: u32, bmp: *Bmp) {
+    BeginShaderMode(shader);
+    rlSetUniformSampler(loc, bmp.id);
+    rlSetUniform(loc + 1, bmp.palette_count, 
+    EndShaderMode(shader);
+}
+
+
+// Little-endian
+#assert OS == .WINDOWS;
+get :: (str: *string, type: $T) -> T {
+    ptr := advance(str, size_of(T));
+    i: T = ---;
+    memcpy(*i, ptr, size_of(T));
+    return i;
+}
+
+advance :: (str: *string, count: int) -> *u8 {
+    ptr := str.data;
+    assert(str.count >= count);
+    str.data += count;
+    str.count -= count;
+    return ptr;
+}
+
 
 PALETTE_SWAP_VERTEX_SHADER :: #string END
 #version 330 core
@@ -155,9 +273,18 @@ PALETTE_SWAP_FRAGMENT_SHADER :: #string END
 in vec2 uv;
 out vec4 color;
 
-uniform sampler2D main_texture;
+
+struct Bmp {
+    uniform sampler2D sampler;
+    uniform uint palette_count;
+    uniform uint palette[256];
+};
+
+
+uniform Bmp main_bmp;
 uniform sampler2D palette_texture;
 uniform sampler2D light_texture;
+
 
 void main() {
     vec4 original_color = texture(main_texture, uv);
