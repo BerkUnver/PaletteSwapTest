@@ -1,6 +1,7 @@
 #import "raylib";
 #import "Basic";
 #import "Math";
+#import "File";
 #import "File_Watcher";
 
 WINDOW_X :: 1920;
@@ -19,16 +20,13 @@ main :: () {
     watcher_callback := (watcher: *File_Watcher(), change: *File_Change, user_data: *void) {
         if !(change.events & .REMOVED) {
             if change.full_path == {
-                case "./main.png";
+                case "./main.bmp";
                     UnloadTexture(main_texture);
-                    main_texture = LoadTexture("main.png");
-                    SetTextureFilter(main_texture, .TEXTURE_FILTER_POINT);
+                    main_texture = load_bmp("main.bmp");
 
                 case "./palette.png";
                     UnloadTexture(palette_texture);
                     palette_texture = LoadTexture("palette.png");
-                    SetTextureFilter(palette_texture, .TEXTURE_FILTER_BILINEAR);
-                    SetTextureWrap(palette_texture, .TEXTURE_WRAP_CLAMP);
 
                 case "./light.png";
                     UnloadTexture(light_texture);
@@ -46,13 +44,9 @@ main :: () {
     assert(init(*watcher, watcher_callback, watch_recursively=false));
     assert(add_directories(*watcher, "."));
 
-    // @Copypaste from the watcher callback
-    main_texture = LoadTexture("main.png");
-    SetTextureFilter(main_texture, .TEXTURE_FILTER_POINT);
+    main_texture = load_bmp("main.bmp");
 
     palette_texture = LoadTexture("palette.png");
-    SetTextureFilter(palette_texture, .TEXTURE_FILTER_BILINEAR);
-    SetTextureWrap(palette_texture, .TEXTURE_WRAP_CLAMP);
 
     light_texture = LoadTexture("light.png");
     SetTextureFilter(light_texture, .TEXTURE_FILTER_POINT);
@@ -62,8 +56,8 @@ main :: () {
 
     shader := LoadShaderFromMemory(PALETTE_SWAP_VERTEX_SHADER, PALETTE_SWAP_FRAGMENT_SHADER);
 
-    projection_loc      := GetShaderLocation(shader, "projection");
     main_texture_loc    := GetShaderLocation(shader, "main_texture");
+    projection_loc      := GetShaderLocation(shader, "projection");
     palette_texture_loc := GetShaderLocation(shader, "palette_texture");
     light_texture_loc   := GetShaderLocation(shader, "light_texture");
     
@@ -73,11 +67,11 @@ main :: () {
         process_changes(*watcher);
 
         BeginDrawing();
+        defer EndDrawing();
 
         ClearBackground(BLACK);
-
-        BeginShaderMode(shader);
         
+        BeginShaderMode(shader);
 
         projection := Matrix4_Identity;
        
@@ -98,12 +92,12 @@ main :: () {
         }
 
         projection._22 *= -1;
-        
+
         SetShaderValueMatrix (shader, projection_loc,      projection);
         SetShaderValueTexture(shader, main_texture_loc,    main_texture);
         SetShaderValueTexture(shader, palette_texture_loc, palette_texture);
         SetShaderValueTexture(shader, light_texture_loc,   light_texture);
-        
+
         rlBegin(RL_TRIANGLES);
         
         rlTexCoord2f(0, 0);
@@ -122,25 +116,12 @@ main :: () {
 
         rlEnd();
 
-        EndShaderMode();
-
-        EndDrawing();
-
         reset_temporary_storage();
     }
 }
 
 
-Bmp :: struct {
-    width: s32;
-    height: s32;
-    id: s32;
-    palette_count: s32;
-    palette: [256] Vector4;
-}
-
-
-load_bmp :: (path: string) -> Bmp {
+load_bmp :: (path: string) -> Texture {
     str, success := read_entire_file(path);
     assert(success);
 
@@ -194,59 +175,47 @@ load_bmp :: (path: string) -> Bmp {
     }
 
     palette_size := header.biClrUsed * size_of(RGBQUAD);
-    palette: *RGBQUAD = xx advance(*str, palette_size);
+    advance(*str, palette_size);
+   
     
-    assert(header.biWidth % 4 == 0);
-    // Apparently they insert padding bits to round up to 4 bytes per row.
-    // I don't want to deal with that right now so I am just doing this.
-
-    image_data := advance(*str, image.biWidth * header.biHeight);
+    buffer := NewArray(header.biWidth * header.biHeight, u8,, temp);
+    
+    stride: int;
+    if header.biWidth % 4 == 0 {
+        stride = header.biWidth;
+    } else {
+        stride = (header.biWidth & ~0b11) + 4;
+    }
+    
+    // We will load the image top-down for now.
+    for 1..header.biHeight {
+        memcpy(*buffer[header.biWidth * (header.biHeight - it)], str.data, header.biWidth);
+        advance(*str, stride);
+    }
 
     assert(str.count == 0); // I don't know if this is correct. Is there padding at the end?
 
-    id := rlLoadTexture(image_data, image.biWidth, image.biHeight, .PIXELFORMAT_UNCOMPRESSED_GRAYSCALE, 0);
+    // This should be in the R8_UI format, but raylib doesn't let you do that.
 
-    bmp: Bmp;
-    bmp.width = header.biWidth;
-    bmp.height = heaer.biHeight;
-    bmp.id = id;
-    bmp.palette_count = palette_count;
-    for 0..palette_count-1 {
-        using q := palette[it];
-        bmp.palette[it_index] = .{
-            cast(float)r/255,
-            cast(float)g/255,
-            cast(float)b/255,
-            1
-        };
-    }
-
-    return bmp;
-}
-
-set_bmp_uniform :: (shader: Shader, loc: u32, bmp: *Bmp) {
-    BeginShaderMode(shader);
-    rlSetUniformSampler(loc, bmp.id);
-    rlSetUniform(loc + 1, bmp.palette_count, 
-    EndShaderMode(shader);
+    id := rlLoadTexture(buffer.data, header.biWidth, header.biHeight, .PIXELFORMAT_UNCOMPRESSED_GRAYSCALE, 1);
+    
+    texture := Texture.{
+        id = id,
+        width = header.biWidth,
+        height = header.biHeight,
+        format = .PIXELFORMAT_UNCOMPRESSED_GRAYSCALE,
+    };
+    SetTextureFilter(texture, .TEXTURE_FILTER_POINT);
+    return texture;
 }
 
 
 // Little-endian
 #assert OS == .WINDOWS;
-get :: (str: *string, type: $T) -> T {
-    ptr := advance(str, size_of(T));
-    i: T = ---;
-    memcpy(*i, ptr, size_of(T));
-    return i;
-}
-
-advance :: (str: *string, count: int) -> *u8 {
-    ptr := str.data;
-    assert(str.count >= count);
-    str.data += count;
-    str.count -= count;
-    return ptr;
+get :: (str: *string, $T: Type) -> T {
+    ptr: *T = xx str.data;
+    advance(str, size_of(T));
+    return ptr.*;
 }
 
 
@@ -274,51 +243,21 @@ in vec2 uv;
 out vec4 color;
 
 
-struct Bmp {
-    uniform sampler2D sampler;
-    uniform uint palette_count;
-    uniform uint palette[256];
-};
-
-
-uniform Bmp main_bmp;
+uniform sampler2D main_texture;
 uniform sampler2D palette_texture;
 uniform sampler2D light_texture;
 
 
 void main() {
-    vec4 original_color = texture(main_texture, uv);
-
-    ivec2 texture_size = textureSize(palette_texture, 0);
-
-    int index = -1;
-    for (int i = 0; i < texture_size.x; i++) {
-        if (texelFetch(palette_texture, ivec2(i, 0), 0) == original_color) {
-            index = i;
-            break;
-        }
-    }
-
-    if (index == -1) {
-        color = vec4(0, 1, 0, 1); // Make it a hideous green so we notice right away
-        return;
-    }
+    int palette_index = int(texture(main_texture, uv).r * 255.0);
 
     float light_intensity = texture(light_texture, uv).a;
-    
-    // The + 0.5 is so we end up in the middle of the texel in the palette so we aren't
-    // affected by bilinear filtering.
-    vec2 palette_uv = vec2((float(index) + 0.5) / float(texture_size.x), light_intensity);
+    ivec2 palette_size = textureSize(palette_texture, 0);
 
+    float palette_x = (float(palette_index) + 0.5) / palette_size.x;
+    float palette_y = (0.5 + light_intensity * (palette_size.y - 1)) / palette_size.y;
+    vec2 palette_uv = vec2(palette_x, palette_y);
 
-    vec4 palette_color = texture(palette_texture, palette_uv);
-    if (palette_color.x < 0.001 && palette_color.y < 0.001 && palette_color.z < 0.001 && palette_color.a > 0.999) {
-        // If the palette color is really close to black, that means we haven't filled it in yet.
-        // The program should let us know by making the pixels a hideous blue;
-        color = vec4(0, 1, 1, 1);
-        return;
-    }
-
-    color = palette_color;
+    color = texture(palette_texture, palette_uv);
 }
 END
