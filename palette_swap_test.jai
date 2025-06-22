@@ -4,12 +4,14 @@
 #import "File";
 #import "File_Watcher";
 
+
 WINDOW_X :: 1920;
 WINDOW_Y :: 1080;
 
 main_texture:    Texture;
 palette_texture: Texture;
-light_texture:   Texture;
+light_day_texture: Texture;
+light_night_texture: Texture;
 
 main :: () {
     SetConfigFlags(.FLAG_WINDOW_RESIZABLE);
@@ -28,10 +30,10 @@ main :: () {
                     UnloadTexture(palette_texture);
                     palette_texture = LoadTexture("palette.png");
 
-                case "./light.png";
-                    UnloadTexture(light_texture);
-                    light_texture = LoadTexture("light.png");
-                    SetTextureFilter(light_texture, .TEXTURE_FILTER_POINT);
+                case "./light_day.png";
+                    UnloadTexture(light_day_texture);
+                    light_day_texture = LoadTexture("light.png");
+                    SetTextureFilter(light_day_texture, .TEXTURE_FILTER_POINT);
 
                 case;
                     return;
@@ -48,23 +50,47 @@ main :: () {
 
     palette_texture = LoadTexture("palette.png");
 
-    light_texture = LoadTexture("light.png");
-    SetTextureFilter(light_texture, .TEXTURE_FILTER_POINT);
+    light_day_texture = LoadTexture("light_day.png");
+    SetTextureFilter(light_day_texture, .TEXTURE_FILTER_POINT);
+
+    light_night_texture = LoadTexture("light_night.png");
+    SetTextureFilter(light_night_texture, .TEXTURE_FILTER_POINT);
 
 
 
 
     shader := LoadShaderFromMemory(PALETTE_SWAP_VERTEX_SHADER, PALETTE_SWAP_FRAGMENT_SHADER);
 
-    main_texture_loc    := GetShaderLocation(shader, "main_texture");
-    projection_loc      := GetShaderLocation(shader, "projection");
-    palette_texture_loc := GetShaderLocation(shader, "palette_texture");
-    light_texture_loc   := GetShaderLocation(shader, "light_texture");
+    projection_loc          := GetShaderLocation(shader, "projection");
+    time_loc                := GetShaderLocation(shader, "time");
+    main_texture_loc        := GetShaderLocation(shader, "main_texture");
+    palette_texture_loc     := GetShaderLocation(shader, "palette_texture");
+    light_day_texture_loc   := GetShaderLocation(shader, "light_day_texture");
+    light_night_texture_loc := GetShaderLocation(shader, "light_night_texture");
     
     rlDisableBackfaceCulling();
+    
+    // Represents the current time-of-day of the scene. Ranges from 0 to 1, where 0 is midnight at
+    // the beginning of the day and 1 midnight at the end of the day.
+    time := 0.5;
 
     while !WindowShouldClose() {
         process_changes(*watcher);
+
+        dt := GetFrameTime();
+
+        TIME_RATE :: 1;
+        
+        if IsKeyPressed(.KEY_LEFT_BRACKET) || IsKeyPressedRepeat(xx KeyboardKey.KEY_LEFT_BRACKET) {
+            time -= dt * TIME_RATE;
+            time = fmod_cycling(time, 1);
+        }
+
+        if IsKeyPressed(.KEY_RIGHT_BRACKET) || IsKeyPressedRepeat(xx KeyboardKey.KEY_RIGHT_BRACKET) {
+            time += dt * TIME_RATE;
+            time = fmod_cycling(time, 1);
+        }
+
 
         BeginDrawing();
         defer EndDrawing();
@@ -92,11 +118,13 @@ main :: () {
         }
 
         projection._22 *= -1;
-
-        SetShaderValueMatrix (shader, projection_loc,      projection);
-        SetShaderValueTexture(shader, main_texture_loc,    main_texture);
-        SetShaderValueTexture(shader, palette_texture_loc, palette_texture);
-        SetShaderValueTexture(shader, light_texture_loc,   light_texture);
+        
+        SetShaderValue       (shader, time_loc,                *time, .SHADER_UNIFORM_FLOAT);
+        SetShaderValueMatrix (shader, projection_loc,          projection);
+        SetShaderValueTexture(shader, main_texture_loc,        main_texture);
+        SetShaderValueTexture(shader, palette_texture_loc,     palette_texture);
+        SetShaderValueTexture(shader, light_day_texture_loc,   light_day_texture);
+        SetShaderValueTexture(shader, light_night_texture_loc, light_night_texture);
 
         rlBegin(RL_TRIANGLES);
         
@@ -209,7 +237,6 @@ load_bmp :: (path: string) -> Texture {
     return texture;
 }
 
-
 // Little-endian
 #assert OS == .WINDOWS;
 get :: (str: *string, $T: Type) -> T {
@@ -242,20 +269,24 @@ PALETTE_SWAP_FRAGMENT_SHADER :: #string END
 in vec2 uv;
 out vec4 color;
 
-
+uniform float time;
 uniform sampler2D main_texture;
 uniform sampler2D palette_texture;
-uniform sampler2D light_texture;
-
+uniform sampler2D light_day_texture;
+uniform sampler2D light_night_texture;
 
 void main() {
+    bool is_day = 0.25 <= time && time <= 0.75;
     int palette_index = int(texture(main_texture, uv).r * 255.0);
 
-    float light_intensity = texture(light_texture, uv).a;
+    float light_intensity = texture(is_day ? light_day_texture : light_night_texture, uv).a;
     ivec2 palette_size = textureSize(palette_texture, 0);
 
     float palette_x = (float(palette_index) + 0.5) / palette_size.x;
     float palette_y = (0.5 + light_intensity * (palette_size.y - 1)) / palette_size.y;
+    palette_y /= 2; // Each palette takes up half of the texture.
+    palette_y += float(is_day) * 0.5; // The day palette is in the second half of the texture.
+
     vec2 palette_uv = vec2(palette_x, palette_y);
 
     color = texture(palette_texture, palette_uv);
