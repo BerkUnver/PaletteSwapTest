@@ -29,10 +29,16 @@ main :: () {
                 case "./palette.png";
                     UnloadTexture(palette_texture);
                     palette_texture = LoadTexture("palette.png");
+                    SetTextureFilter(light_day_texture, .TEXTURE_FILTER_POINT);
 
                 case "./light_day.png";
                     UnloadTexture(light_day_texture);
-                    light_day_texture = LoadTexture("light.png");
+                    light_day_texture = LoadTexture("light_day.png");
+                    SetTextureFilter(light_day_texture, .TEXTURE_FILTER_POINT);
+
+                case "./light_night.png";
+                    UnloadTexture(light_day_texture);
+                    light_day_texture = LoadTexture("light_night.png");
                     SetTextureFilter(light_day_texture, .TEXTURE_FILTER_POINT);
 
                 case;
@@ -49,6 +55,7 @@ main :: () {
     main_texture = load_bmp("main.bmp");
 
     palette_texture = LoadTexture("palette.png");
+    SetTextureFilter(light_day_texture, .TEXTURE_FILTER_POINT);
 
     light_day_texture = LoadTexture("light_day.png");
     SetTextureFilter(light_day_texture, .TEXTURE_FILTER_POINT);
@@ -143,6 +150,11 @@ main :: () {
         rlVertex3f(1, -1, 0);
 
         rlEnd();
+
+        EndShaderMode();
+        
+        time_text := tprint("%\0", time);
+        DrawText(time_text.data, 50, 50, 20, WHITE);
 
         reset_temporary_storage();
     }
@@ -283,12 +295,18 @@ void main() {
     ivec2 palette_size = textureSize(palette_texture, 0);
 
     float palette_x = (float(palette_index) + 0.5) / palette_size.x;
-    float palette_y = (0.5 + light_intensity * (palette_size.y - 1)) / palette_size.y;
-    palette_y /= 2; // Each palette takes up half of the texture.
-    palette_y += float(is_day) * 0.5; // The day palette is in the second half of the texture.
+    float palette_night_y = (0.5 + light_intensity * (palette_size.y - 1)) / palette_size.y;
+    palette_night_y /= 2; // Each palette takes up half of the texture.
+    float palette_day_y = palette_night_y + 0.5; // The day palette is in the second half of the texture.
 
-    vec2 palette_uv = vec2(palette_x, palette_y);
+    vec2 palette_day_uv = vec2(palette_x, palette_day_y);
+    vec2 palette_night_uv = vec2(palette_x, palette_night_y);
 
-    color = texture(palette_texture, palette_uv);
+    vec4 day_color = texture(palette_texture, palette_day_uv);
+    vec4 night_color = texture(palette_texture, palette_night_uv);
+
+    float interp = abs((time - 0.5) * 2);
+
+    color = mix(day_color, night_color, interp);
 }
 END
