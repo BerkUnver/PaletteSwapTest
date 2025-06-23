@@ -290,17 +290,6 @@ uniform sampler2D light_night_texture;
 const float PI = 3.141592;
 
 void main() {
-    bool is_day = 0.25 <= time && time <= 0.75;
-    int palette_index = int(texture(main_texture, uv).r * 255.0);
-    
-    float light_day_intensity   = texture(light_day_texture, uv).a;
-    float light_night_intensity = texture(light_night_texture, uv).a;
-
-    ivec2 palette_size = textureSize(palette_texture, 0);
-
-    float palette_x = (float(palette_index) + 0.5) / palette_size.x;
-
-
     const float OVERLAP = 0.05;
 
     float palette_interp = 0;
@@ -315,6 +304,33 @@ void main() {
     } else {
         palette_interp = 0;
     }
+    
+    float light_day   = texture(light_day_texture,   uv).a;
+    float light_night = texture(light_night_texture, uv).a;
+
+    
+    float light = 0;
+
+    if (0.25-OVERLAP <= time && time < 0.75+OVERLAP) {
+        float x = (time - (0.25-OVERLAP)) / ((0.75+OVERLAP) / (0.25-OVERLAP));
+        x = (x - 0.5) * 2;
+        light += sqrt(1 - x*x) * light_day;
+    }
+    
+    if (time < 0.25+OVERLAP || 0.75-OVERLAP <= time) {
+        float x = mod(time + 0.5, 1);
+        x = (x - (0.25-OVERLAP)) / ((0.75+OVERLAP) / (0.25-OVERLAP));
+        x = (x - 0.5) * 2;
+        light += sqrt(1 - x*x) * light_night;
+    }
+
+    light = min(light, 1);
+
+
+
+    int palette_index = int(texture(main_texture, uv).r * 255.0);
+    ivec2 palette_size = textureSize(palette_texture, 0);
+    float palette_x = (float(palette_index) + 0.5) / palette_size.x;
 
     // The EPSILON is so we don't go over the edge of the texture.
     const float EPSILON = 0.001;
@@ -322,49 +338,21 @@ void main() {
     float palette_night_base_y = EPSILON / palette_size.y;
     float palette_day_base_y = palette_night_base_y + 0.5;
 
-    vec4 day_base_color     = texture(palette_texture, vec2(palette_x, palette_day_base_y));
-    vec4 night_base_color   = texture(palette_texture, vec2(palette_x, palette_night_base_y));
 
-    color = mix(night_base_color, day_base_color, palette_interp);
+    vec4 day_base_color   = texture(palette_texture, vec2(palette_x, palette_day_base_y));
+    vec4 night_base_color = texture(palette_texture, vec2(palette_x, palette_night_base_y));
     
-    
-    /* 
-    // The EPSILON is so we don't go over the edge of the texture.
-    const float EPSILON = 0.001;
-    float palette_night_base_y = EPSILON / palette_size.y;
-    float palette_day_base_y = palette_night_base_y + 0.5;
-    
-    float offset = (light_intensity * (palette_size.y / 2 - 2 * EPSILON)) / palette_size.y; // How far are we offset from the base uv to get to the color?
+    float day_offset = (light_day * (palette_size.y / 2 - 2 * EPSILON)) / palette_size.y; // How far are we offset from the base uv to get to the color?
+    vec4 day_offset_color = texture(palette_texture, vec2(palette_x, palette_day_base_y + day_offset));
 
-    vec4 day_base_color     = texture(palette_texture, vec2(palette_x, palette_day_base_y));
-    vec4 night_base_color   = texture(palette_texture, vec2(palette_x, palette_night_base_y));
-    vec4 day_offset_color   = texture(palette_texture, vec2(palette_x, palette_day_base_y + offset));
-    vec4 night_offset_color = texture(palette_texture, vec2(palette_x, palette_night_base_y + offset));
+    float night_offset = (light_night * (palette_size.y / 2 - 2 * EPSILON)) / palette_size.y;
+    vec4 night_offset_color = texture(palette_texture, vec2(palette_x, palette_night_base_y + night_offset));
 
     
-    float day_interp = 0;
-    if (0.25 <= time && time < 0.75) {
-        // Hemisphere centered at 0.5 with radius 0.25
-        float day_x = (time - 0.5) * 4;
-        day_interp = sqrt(1 - day_x * day_x);
-    }
-
+    vec4 base_color = mix(night_base_color, day_base_color, palette_interp);
+    vec4 offset_color = mix(night_offset_color, day_offset_color, palette_interp);
     
-    vec4 day_color = mix(day_base_color, day_offset_color, day_interp);
-    vec4 night_color = 0.26 <= time && time <= 0.74 ? night_base_color : night_offset_color;
-
-    
-    if (time < 0.2) {
-        color = night_color;
-    } else if (0.2 <= time && time < 0.3) {
-        color = mix(night_color, day_color, (time - 0.2) * 10);
-    } else if (0.3 <= time && time <= 0.7) {
-        color = day_color;
-    } else if (0.7 <= time && time <= 0.8) {
-        color = mix(day_color, night_color, (time - 0.7) * 10);
-    } else {
-        color = night_color;
-    }
-    */
+    // color = mix(base_color, offset_color, light);
+    color = day_offset_color;
 }
 END
