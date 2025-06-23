@@ -86,7 +86,7 @@ main :: () {
 
         dt := GetFrameTime();
 
-        TIME_RATE :: 1;
+        TIME_RATE :: 0.5;
         
         if IsKeyPressed(.KEY_LEFT_BRACKET) || IsKeyPressedRepeat(xx KeyboardKey.KEY_LEFT_BRACKET) {
             time -= dt * TIME_RATE;
@@ -287,15 +287,48 @@ uniform sampler2D palette_texture;
 uniform sampler2D light_day_texture;
 uniform sampler2D light_night_texture;
 
+const float PI = 3.141592;
+
 void main() {
     bool is_day = 0.25 <= time && time <= 0.75;
     int palette_index = int(texture(main_texture, uv).r * 255.0);
+    
+    float light_day_intensity   = texture(light_day_texture, uv).a;
+    float light_night_intensity = texture(light_night_texture, uv).a;
 
-    float light_intensity = texture(is_day ? light_day_texture : light_night_texture, uv).a;
     ivec2 palette_size = textureSize(palette_texture, 0);
 
     float palette_x = (float(palette_index) + 0.5) / palette_size.x;
+
+
+    const float OVERLAP = 0.05;
+
+    float palette_interp = 0;
+    if (time < 0.25-OVERLAP) {
+        palette_interp = 0;
+    } else if (0.25-OVERLAP <= time && time < 0.25+OVERLAP) {
+        palette_interp = smoothstep(0.25-OVERLAP, 0.25+OVERLAP, time);
+    } else if (0.25+OVERLAP <= time && time < 0.75-OVERLAP) {
+        palette_interp = 1;
+    } else if (0.75-OVERLAP <= time && time < 0.75+OVERLAP) {
+        palette_interp = smoothstep(0.75+OVERLAP, 0.75-OVERLAP, time);
+    } else {
+        palette_interp = 0;
+    }
+
+    // The EPSILON is so we don't go over the edge of the texture.
+    const float EPSILON = 0.001;
+
+    float palette_night_base_y = EPSILON / palette_size.y;
+    float palette_day_base_y = palette_night_base_y + 0.5;
+
+    vec4 day_base_color     = texture(palette_texture, vec2(palette_x, palette_day_base_y));
+    vec4 night_base_color   = texture(palette_texture, vec2(palette_x, palette_night_base_y));
+
+    color = mix(night_base_color, day_base_color, palette_interp);
     
+    
+    /* 
     // The EPSILON is so we don't go over the edge of the texture.
     const float EPSILON = 0.001;
     float palette_night_base_y = EPSILON / palette_size.y;
@@ -316,17 +349,9 @@ void main() {
         day_interp = sqrt(1 - day_x * day_x);
     }
 
-
-    float night_interp = 0;
-    if (time < 0.25 || 0.75 <= time) {
-        // Two halves of a hemisphere, each with radius 0.25, centered at 0 and 1.
-        float night_x = (mod(time + 0.5, 1) - 0.5) * 4;
-        night_interp = sqrt(1 - night_x * night_x);
-    }
-
-
+    
     vec4 day_color = mix(day_base_color, day_offset_color, day_interp);
-    vec4 night_color = mix(night_base_color, night_offset_color, night_interp);
+    vec4 night_color = 0.26 <= time && time <= 0.74 ? night_base_color : night_offset_color;
 
     
     if (time < 0.2) {
@@ -340,5 +365,6 @@ void main() {
     } else {
         color = night_color;
     }
+    */
 }
 END
