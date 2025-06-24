@@ -308,24 +308,19 @@ void main() {
     float light_day   = texture(light_day_texture,   uv).a;
     float light_night = texture(light_night_texture, uv).a;
 
-    
-    float light = 0;
-
+    float light_interp_day = 0;
     if (0.25-OVERLAP <= time && time < 0.75+OVERLAP) {
-        float x = (time - (0.25-OVERLAP)) / ((0.75+OVERLAP) / (0.25-OVERLAP));
+        float x = (time - (0.25-OVERLAP)) / ((0.75+OVERLAP) - (0.25-OVERLAP));
         x = (x - 0.5) * 2;
-        light += sqrt(1 - x*x) * light_day;
+        light_interp_day = sqrt(1 - x*x);
+    }
+
+    float light_interp_night = 0;
+    const float NIGHT_OVERLAP = 0.02;
+    if (time < 0.25-NIGHT_OVERLAP || 0.75+NIGHT_OVERLAP <= time) {
+        light_interp_night = 1;
     }
     
-    if (time < 0.25+OVERLAP || 0.75-OVERLAP <= time) {
-        float x = mod(time + 0.5, 1);
-        x = (x - (0.25-OVERLAP)) / ((0.75+OVERLAP) / (0.25-OVERLAP));
-        x = (x - 0.5) * 2;
-        light += sqrt(1 - x*x) * light_night;
-    }
-
-    light = min(light, 1);
-
 
 
     int palette_index = int(texture(main_texture, uv).r * 255.0);
@@ -348,11 +343,9 @@ void main() {
     float night_offset = (light_night * (palette_size.y / 2 - 2 * EPSILON)) / palette_size.y;
     vec4 night_offset_color = texture(palette_texture, vec2(palette_x, palette_night_base_y + night_offset));
 
-    
-    vec4 base_color = mix(night_base_color, day_base_color, palette_interp);
-    vec4 offset_color = mix(night_offset_color, day_offset_color, palette_interp);
-    
-    // color = mix(base_color, offset_color, light);
-    color = day_offset_color;
+    vec4 day_color   = mix(day_base_color,   day_offset_color,   light_interp_day);
+    vec4 night_color = mix(night_base_color, night_offset_color, light_interp_night);
+
+    color = mix(night_color, day_color, palette_interp);
 }
 END
