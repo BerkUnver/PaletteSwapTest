@@ -37,9 +37,9 @@ main :: () {
                     SetTextureFilter(light_day_texture, .TEXTURE_FILTER_POINT);
 
                 case "./light_night.png";
-                    UnloadTexture(light_day_texture);
-                    light_day_texture = LoadTexture("light_night.png");
-                    SetTextureFilter(light_day_texture, .TEXTURE_FILTER_POINT);
+                    UnloadTexture(light_night_texture);
+                    light_night_texture = LoadTexture("light_night.png");
+                    SetTextureFilter(light_night_texture, .TEXTURE_FILTER_POINT);
 
                 case;
                     return;
@@ -322,6 +322,10 @@ void main() {
     }
     
 
+    const int PALETTE_ROWS = 4;
+    const int NIGHT_ROW = 0;
+    const int DAY_ROW = 1;
+    const int SUNSET_ROW = 2;
 
     int palette_index = int(texture(main_texture, uv).r * 255.0);
     ivec2 palette_size = textureSize(palette_texture, 0);
@@ -331,16 +335,16 @@ void main() {
     const float EPSILON = 0.001;
 
     float palette_night_base_y = EPSILON / palette_size.y;
-    float palette_day_base_y = palette_night_base_y + 0.5;
+    float palette_day_base_y = palette_night_base_y + float(DAY_ROW)/float(PALETTE_ROWS);
 
 
     vec4 day_base_color   = texture(palette_texture, vec2(palette_x, palette_day_base_y));
     vec4 night_base_color = texture(palette_texture, vec2(palette_x, palette_night_base_y));
     
-    float day_offset = (light_day * (palette_size.y / 2 - 2 * EPSILON)) / palette_size.y; // How far are we offset from the base uv to get to the color?
+    float day_offset = (light_day * (palette_size.y / float(PALETTE_ROWS) - 2 * EPSILON)) / palette_size.y; // How far are we offset from the base uv to get to the color?
     vec4 day_offset_color = texture(palette_texture, vec2(palette_x, palette_day_base_y + day_offset));
 
-    float night_offset = (light_night * (palette_size.y / 2 - 2 * EPSILON)) / palette_size.y;
+    float night_offset = (light_night * (palette_size.y / float(PALETTE_ROWS) - 2 * EPSILON)) / palette_size.y;
     vec4 night_offset_color = texture(palette_texture, vec2(palette_x, palette_night_base_y + night_offset));
 
     vec4 day_color   = mix(day_base_color,   day_offset_color,   light_interp_day);
