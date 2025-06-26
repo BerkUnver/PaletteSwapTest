@@ -29,7 +29,6 @@ main :: () {
                 case "./palette.png";
                     UnloadTexture(palette_texture);
                     palette_texture = LoadTexture("palette.png");
-                    SetTextureFilter(light_day_texture, .TEXTURE_FILTER_POINT);
 
                 case "./light_day.png";
                     UnloadTexture(light_day_texture);
@@ -55,7 +54,6 @@ main :: () {
     main_texture = load_bmp("main.bmp");
 
     palette_texture = LoadTexture("palette.png");
-    SetTextureFilter(light_day_texture, .TEXTURE_FILTER_POINT);
 
     light_day_texture = LoadTexture("light_day.png");
     SetTextureFilter(light_day_texture, .TEXTURE_FILTER_POINT);
@@ -294,17 +292,15 @@ const float PI = 3.141592;
 #define DAY_ROW      1
 #define SUNSET_ROW   2
 
-
-vec4 get_color(float x, float light, float light_intensity, int row) {
-    const float EPSILON = 0.001;
+vec4 get_color(float x, float light, int row) {
     float palette_size_y = float(textureSize(palette_texture, 0).y);
-    float base_y = EPSILON/palette_size_y + float(row)/float(PALETTE_ROWS);
-    float offset_y = base_y + (light * (palette_size_y / float(PALETTE_ROWS) - 2 * EPSILON)) / palette_size_y;
+    float start_y = 0.5/palette_size_y + float(row)/float(PALETTE_ROWS);
+    float end_y = float(row+1)/float(PALETTE_ROWS) - 0.5/palette_size_y;
 
-    vec4 base_color = texture(palette_texture, vec2(x, base_y));
-    vec4 offset_color = texture(palette_texture, vec2(x, offset_y));
+    vec4 start_color = texture(palette_texture, vec2(x, start_y));
+    vec4 end_color   = texture(palette_texture, vec2(x, end_y));
 
-    return mix(base_color, offset_color, light_intensity);
+    return mix(start_color, end_color, light);
 }
 
 
@@ -337,29 +333,30 @@ void main() {
     } else {
         mix_night = 1;
     }
+
+    float light = 0;
     
-    float light_day   = texture(light_day_texture,   uv).a;
-    float light_night = texture(light_night_texture, uv).a;
-
-    float light_interp_day = 0;
-    if (0.25 <= time && time < 0.75) {
-        float x = (time - 0.25) / (0.5);
+    const float DAYLIGHT_OFFSET = 0.0;
+    if (0.25-DAYLIGHT_OFFSET <= time && time < 0.75+DAYLIGHT_OFFSET) {
+        float x = (time - 0.25) / ((0.75+DAYLIGHT_OFFSET) - (0.25-DAYLIGHT_OFFSET));
         x = (x - 0.5) * 2;
-        light_interp_day = sqrt(1 - x*x);
+        light += texture(light_day_texture, uv).a * sqrt(1 - x*x);
+    }
+    
+    if (time < 0.25-0.02 || 0.75+0.02 <= time) {
+        light += texture(light_night_texture, uv).a;
     }
 
-    float light_interp_night = 0;
-    if (time < 0.25-0.02 || 0.75+0.02 <= time) {
-        light_interp_night = 1;
-    }
+    light = min(1, light);
+
     
     int palette_index = int(texture(main_texture, uv).r * 255.0);
     ivec2 palette_size = textureSize(palette_texture, 0);
     float palette_x = (float(palette_index) + 0.5) / palette_size.x;
 
-    vec4 day_color    = get_color(palette_x, light_day,   light_interp_day,   DAY_ROW);
-    vec4 night_color  = get_color(palette_x, light_night, light_interp_night, NIGHT_ROW);
-    vec4 sunset_color = get_color(palette_x, 0,           0,                  SUNSET_ROW);
+    vec4 day_color    = get_color(palette_x, light, DAY_ROW);
+    vec4 night_color  = get_color(palette_x, light, NIGHT_ROW);
+    vec4 sunset_color = get_color(palette_x, light, SUNSET_ROW);
 
     color = night_color*mix_night + sunset_color*mix_sunset + day_color*mix_day;
 }
