@@ -79,22 +79,40 @@ main :: () {
     // the beginning of the day and 1 midnight at the end of the day.
     time := 0.5;
 
+    Time_Mode :: enum {
+        MANUAL;
+        AUTOMATIC;
+    }
+    
+    time_mode := Time_Mode.MANUAL;
+
     while !WindowShouldClose() {
         process_changes(*watcher);
 
         dt := GetFrameTime();
 
-        TIME_RATE :: 0.5;
-        
-        if IsKeyPressed(.KEY_LEFT_BRACKET) || IsKeyPressedRepeat(xx KeyboardKey.KEY_LEFT_BRACKET) {
-            time -= dt * TIME_RATE;
-            time = fmod_cycling(time, 1);
+
+        if IsKeyPressed(.KEY_M) {
+            if #complete time_mode == {
+                case .MANUAL;    time_mode = .AUTOMATIC;
+                case .AUTOMATIC; time_mode = .MANUAL;
+            }
         }
 
-        if IsKeyPressed(.KEY_RIGHT_BRACKET) || IsKeyPressedRepeat(xx KeyboardKey.KEY_RIGHT_BRACKET) {
-            time += dt * TIME_RATE;
-            time = fmod_cycling(time, 1);
+        if #complete time_mode == {
+            case .MANUAL;
+                TIME_RATE :: 0.5;
+                if IsKeyPressed(.KEY_LEFT_BRACKET) || IsKeyPressedRepeat(xx KeyboardKey.KEY_LEFT_BRACKET) {
+                    time -= dt * TIME_RATE;
+                }
+                if IsKeyPressed(.KEY_RIGHT_BRACKET) || IsKeyPressedRepeat(xx KeyboardKey.KEY_RIGHT_BRACKET) {
+                    time += dt * TIME_RATE;
+                }
+            case .AUTOMATIC;
+                TIME_RATE :: 0.03;
+                time += dt * TIME_RATE;
         }
+        time = fmod_cycling(time, 1);
 
 
         BeginDrawing();
@@ -151,8 +169,11 @@ main :: () {
 
         EndShaderMode();
         
-        time_text := tprint("%\0", time);
-        DrawText(time_text.data, 50, 50, 20, WHITE);
+        if time_mode == .MANUAL {
+            time_text := tprint("%\0", time);
+            DrawText(time_text.data, 50, 50, 20, WHITE);
+        }
+
 
         reset_temporary_storage();
     }
@@ -311,8 +332,8 @@ void main() {
     float mix_sunset = 0;
     float mix_day = 0;
 
-    const float NIGHT_SUNSET_OVERLAP = 0.05;
-    const float SUNSET_DAY_OVERLAP   = 0.15;
+    const float NIGHT_SUNSET_OVERLAP = 0.1;
+    const float SUNSET_DAY_OVERLAP   = 0.17;
 
     if (time < 0.25-NIGHT_SUNSET_OVERLAP) {
         mix_night = 1;
@@ -336,14 +357,15 @@ void main() {
 
     float light = 0;
     
-    const float DAYLIGHT_OFFSET = 0.0;
-    if (0.25-DAYLIGHT_OFFSET <= time && time < 0.75+DAYLIGHT_OFFSET) {
-        float x = (time - 0.25) / ((0.75+DAYLIGHT_OFFSET) - (0.25-DAYLIGHT_OFFSET));
+    const float LIGHT_DAY_OFFSET = 0.02;
+    if (0.25-LIGHT_DAY_OFFSET <= time && time < 0.75+LIGHT_DAY_OFFSET) {
+        float x = (time - (0.25-LIGHT_DAY_OFFSET)) / ((0.75+LIGHT_DAY_OFFSET) - (0.25-LIGHT_DAY_OFFSET));
         x = (x - 0.5) * 2;
         light += texture(light_day_texture, uv).a * sqrt(1 - x*x);
     }
     
-    if (time < 0.25-0.02 || 0.75+0.02 <= time) {
+    const float LIGHT_NIGHT_OFFSET = 0.01;
+    if (time < 0.25+LIGHT_NIGHT_OFFSET || 0.75-LIGHT_DAY_OFFSET <= time) {
         light += texture(light_night_texture, uv).a;
     }
 
